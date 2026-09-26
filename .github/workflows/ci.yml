@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  app:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Test Python API
+        run: python -m unittest discover -s tests
+      - name: Build React app
+        run: |
+          npm --prefix web ci
+          npm --prefix web run build
+
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.16.2'
+      - name: Check formatting
+        run: terraform -chdir=infra fmt -check
+      - name: Initialize providers without a state backend
+        run: terraform -chdir=infra init -backend=false -input=false
+      - name: Validate infrastructure
+        run: terraform -chdir=infra validate -no-color

@@ -1,0 +1,6 @@
+project_name = "experience-bank"
+aws_region   = "us-east-1"
+domain_name  = "experiencebank.app"
+
+# Change to true only after certificate validation is complete.
+enable_custom_domain = false

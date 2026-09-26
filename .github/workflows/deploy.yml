@@ -1,0 +1,62 @@
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: experience-bank-production
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      ${{ vars.AWS_DEPLOY_ENABLED == 'true' &&
+          (github.event_name == 'workflow_dispatch' ||
+           (github.event.workflow_run.conclusion == 'success' &&
+            github.event.workflow_run.head_branch == 'main' &&
+            github.event.workflow_run.head_repository.full_name == github.repository)) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Build artifacts
+        run: |
+          python -m unittest discover -s tests
+          npm --prefix web ci
+          npm --prefix web run build
+          zip -j "$RUNNER_TEMP/api.zip" backend/app.py
+      - name: Assume AWS deployment role
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          allowed-account-ids: '767397760523'
+      - name: Publish React and Python
+        shell: bash
+        run: |
+          set -euo pipefail
+          web_bucket=$(aws ssm get-parameter --name /experience-bank/deploy/web-bucket --query Parameter.Value --output text)
+          lambda_function=$(aws ssm get-parameter --name /experience-bank/deploy/lambda-function --query Parameter.Value --output text)
+          distribution_id=$(aws ssm get-parameter --name /experience-bank/deploy/distribution-id --query Parameter.Value --output text)
+
+          aws s3 sync web/dist/ "s3://$web_bucket" --delete
+          aws lambda update-function-code --function-name "$lambda_function" --zip-file "fileb://$RUNNER_TEMP/api.zip"
+          aws lambda wait function-updated --function-name "$lambda_function"
+          invalidation_id=$(aws cloudfront create-invalidation --distribution-id "$distribution_id" --paths '/*' --query Invalidation.Id --output text)
+          aws cloudfront wait invalidation-completed --distribution-id "$distribution_id" --id "$invalidation_id"

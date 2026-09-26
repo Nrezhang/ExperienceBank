@@ -216,3 +216,14 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Terraform and frontend build
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+infra/api.zip
+infra/terraform.tfvars
+web/node_modules/
+web/dist/
+.DS_Store
